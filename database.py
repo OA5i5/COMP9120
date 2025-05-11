@@ -11,10 +11,10 @@ Connect to the database using the connection string
 def openConnection():
     # connection parameters - ENTER YOUR LOGIN AND PASSWORD HERE
 
-    myHost = "awsprddbs4836.shared.sydney.edu.au"
-    userid = "y25s1c9120_rzha0623"
-    passwd = "ac619uu"
-    
+    myHost = ""
+    userid = "y25s1c9120"
+    passwd = "xxxxxx"
+
     # Create a connection to the database
     conn = None
     try:
@@ -81,16 +81,16 @@ def getCarSalesSummary():
     try:
         query = """
         SELECT
-            Make,
-            Model,
-            COUNT(*) FILTER (WHERE IsSold = FALSE) AS AvailableUnits,
-            COUNT(*) FILTER (WHERE IsSold = TRUE) AS SoldUnits,
-            COALESCE(SUM(cs.DiscountPrice), 0) AS TotalSales,
+            cs.MakeCode AS make,
+            cs.ModelCode AS model,
+            COUNT(*) FILTER (WHERE cs.IsSold = FALSE) AS AvailableUnits,
+            COUNT(*) FILTER (WHERE cs.IsSold = TRUE) AS SoldUnits,
+            COALESCE(SUM(cs.Price), 0) AS AllPrices,
+            COALESCE(SUM(cs.Price) FILTER (WHERE cs.IsSold = TRUE), 0) AS SoldPrices,
             TO_CHAR(MAX(cs.SaleDate), 'DD-MM-YYYY') AS LastPurchasedAt
-        FROM Vehicle v
-        LEFT JOIN CarSale cs ON v.VIN = cs.VIN
-        GROUP BY Make, Model
-        ORDER BY Make ASC, Model ASC;
+        FROM CarSales cs
+        GROUP BY cs.MakeCode, cs.ModelCode
+        ORDER BY cs.MakeCode ASC, cs.ModelCode ASC;
         """
         cursor.execute(query)
         rows = cursor.fetchall()
@@ -102,8 +102,9 @@ def getCarSalesSummary():
                 'model': row[1],
                 'availableUnits': row[2],
                 'soldUnits': row[3],
-                'soldTotalPrices': float(row[4]),
-                'lastPurchaseAt': row[5] if row[5] else 'N/A'
+                'totalPrices': float(row[4]),
+                'soldTotalPrices': float(row[5]),
+                'lastPurchaseAt': row[6] if row[6] else 'N/A'
             })
 
         return result
@@ -134,33 +135,32 @@ def findCarSales(searchString):
         query = """
         SELECT 
             cs.CarSaleID,
-            v.Make,
-            v.Model,
-            v.BuiltYear,
-            v.Odometer,
-            v.Price,
-            v.IsSold,
+            cs.MakeCode,
+            cs.ModelCode,
+            cs.BuiltYear,
+            cs.Odometer,
+            cs.Price,
+            cs.IsSold,
             TO_CHAR(cs.SaleDate, 'DD-MM-YYYY') AS SaleDate,
-            c.FirstName || ' ' || c.LastName AS Buyer,
-            s.FirstName || ' ' || s.LastName AS Salesperson
-        FROM CarSale cs
-        JOIN Vehicle v ON cs.VIN = v.VIN
-        JOIN Customer c ON cs.CustomerID = c.CustomerID
-        JOIN Salesperson s ON cs.SalespersonID = s.StaffID
+            COALESCE(c.FirstName || ' ' || c.LastName, 'N/A') AS Buyer,
+            COALESCE(sp.FirstName || ' ' || sp.LastName, 'N/A') AS Salesperson
+        FROM CarSales cs
+        LEFT JOIN Customer c ON cs.BuyerID = c.CustomerID
+        LEFT JOIN Salesperson sp ON cs.SalespersonID = sp.Username
         WHERE 
-            LOWER(v.Make) LIKE %s OR
-            LOWER(v.Model) LIKE %s OR
-            LOWER(c.FirstName || ' ' || c.LastName) LIKE %s OR
-            LOWER(s.FirstName || ' ' || s.LastName) LIKE %s
-        ORDER BY cs.SaleDate DESC;
+            LOWER(cs.MakeCode) LIKE %s OR
+            LOWER(cs.ModelCode) LIKE %s OR
+            LOWER(COALESCE(c.FirstName || ' ' || c.LastName, '')) LIKE %s OR
+            LOWER(COALESCE(sp.FirstName || ' ' || sp.LastName, '')) LIKE %s
+        ORDER BY cs.SaleDate DESC NULLS LAST;
         """
 
         cursor.execute(query, (keyword, keyword, keyword, keyword))
-        results = cursor.fetchall()
+        rows = cursor.fetchall()
 
-        sales = []
-        for row in results:
-            sales.append({
+        result = []
+        for row in rows:
+            result.append({
                 'carsale_id': row[0],
                 'make': row[1],
                 'model': row[2],
@@ -173,7 +173,7 @@ def findCarSales(searchString):
                 'salesperson': row[9]
             })
 
-        return sales
+        return result
 
     except Exception as e:
         print("销售记录查询错误:", e)
@@ -193,21 +193,17 @@ def findCarSales(searchString):
     :param car_sale: The CarSale object to be added to the database.
     :return: A boolean indicating if the operation was successful or not.
 """
-def addCarSale(make, model, builtYear, odometer, price, colour="Unspecified", transmission="Automatic", description="Added via web"):
+def addCarSale(make, model, builtYear, odometer, price):
     conn = openConnection()
     cursor = conn.cursor()
 
     try:
-        vin = str(abs(hash(f"{make}{model}{builtYear}{odometer}{price}{datetime.now()}")))[:15]
-
-        cursor.execute("""
-            INSERT INTO Vehicle (
-                VIN, Make, Model, BuiltYear, Odometer, Colour, TransmissionType,
-                Price, IsSold, Description
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s)
-        """, (vin, make, model, builtYear, odometer, colour, transmission, price, description))
-
-        cursor.execute("INSERT INTO NewVehicle (VIN) VALUES (%s)", (vin,))
+        query = """
+        INSERT INTO CarSales (
+            MakeCode, ModelCode, BuiltYear, Odometer, Price, IsSold
+        ) VALUES (%s, %s, %s, %s, %s, FALSE)
+        """
+        cursor.execute(query, (make, model, builtYear, odometer, price))
         conn.commit()
         return True
 
@@ -230,5 +226,63 @@ def addCarSale(make, model, builtYear, odometer, price, colour="Unspecified", tr
     :param car_sale: The CarSale object containing updated details for the car sale.
     :return: A boolean indicating whether the update was successful or not.
 """
-def updateCarSale(carsaleid, customer, salesperosn, saledate):
-    return
+def updateCarSale(carsaleid, customer, salesperson, saledate):
+    conn = openConnection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT CustomerID FROM Customer 
+            WHERE TRIM(FirstName || ' ' || LastName) = %s
+            LIMIT 1
+        """, (customer,))
+        cust_result = cursor.fetchone()
+
+        if not cust_result:
+            print(f"[ERROR] 客户 {customer} 不存在。")
+            return False
+
+        customer_id = cust_result[0]
+
+        # Step 2: 获取 SalespersonID（Username）
+        cursor.execute("""
+            SELECT Username FROM Salesperson 
+            WHERE TRIM(FirstName || ' ' || LastName) = %s
+            LIMIT 1
+        """, (salesperson,))
+        sales_result = cursor.fetchone()
+
+        if not sales_result:
+            print(f"[ERROR] 销售员 {salesperson} 不存在。")
+            return False
+
+        salesperson_id = sales_result[0]
+
+        # Step 3: 更新 CarSales 表
+        cursor.execute("""
+            UPDATE CarSales
+            SET 
+                IsSold = TRUE,
+                BuyerID = %s,
+                SalespersonID = %s,
+                SaleDate = %s
+            WHERE CarSaleID = %s
+        """, (customer_id, salesperson_id, saledate, carsaleid))
+
+        if cursor.rowcount == 0:
+            print(f"[ERROR] 未找到 CarSaleID = {carsaleid} 的记录。")
+            conn.rollback()
+            return False
+
+        conn.commit()
+        print("[INFO] 销售记录更新成功。")
+        return True
+
+    except Exception as e:
+        print("[EXCEPTION] 销售记录更新失败：", e)
+        conn.rollback()
+        return False
+
+    finally:
+        cursor.close()
+        conn.close()
