@@ -11,9 +11,9 @@ Connect to the database using the connection string
 def openConnection():
     # connection parameters - ENTER YOUR LOGIN AND PASSWORD HERE
 
-    myHost = ""
-    userid = "y25s1c9120"
-    passwd = "xxxxxx"
+    myHost = "awsprddbs4836.shared.sydney.edu.au"
+    userid = "y25s1c9120_rzha0623"
+    passwd = "ac619uu"
 
     # Create a connection to the database
     conn = None
@@ -241,12 +241,11 @@ def updateCarSale(carsaleid, customer, salesperson, saledate):
         if not cust_result:
             print(f"[ERROR] 客户 {customer} 不存在。")
             return False
-
         customer_id = cust_result[0]
 
-        # Step 2: 获取 SalespersonID（Username）
+        # Step 2: 查找 SalespersonID
         cursor.execute("""
-            SELECT Username FROM Salesperson 
+            SELECT UserName FROM Salesperson 
             WHERE TRIM(FirstName || ' ' || LastName) = %s
             LIMIT 1
         """, (salesperson,))
@@ -255,19 +254,33 @@ def updateCarSale(carsaleid, customer, salesperson, saledate):
         if not sales_result:
             print(f"[ERROR] 销售员 {salesperson} 不存在。")
             return False
-
         salesperson_id = sales_result[0]
 
-        # Step 3: 更新 CarSales 表
-        cursor.execute("""
-            UPDATE CarSales
-            SET 
-                IsSold = TRUE,
-                BuyerID = %s,
-                SalespersonID = %s,
-                SaleDate = %s
-            WHERE CarSaleID = %s
-        """, (customer_id, salesperson_id, saledate, carsaleid))
+        # Step 3: 构建 SQL 动态更新语句
+        if saledate:
+            query = """
+                UPDATE CarSales
+                SET 
+                    IsSold = TRUE,
+                    BuyerID = %s,
+                    SalespersonID = %s,
+                    SaleDate = %s
+                WHERE CarSaleID = %s
+            """
+            params = (customer_id, salesperson_id, saledate, carsaleid)
+        else:
+            query = """
+                UPDATE CarSales
+                SET 
+                    IsSold = TRUE,
+                    BuyerID = %s,
+                    SalespersonID = %s,
+                    SaleDate = NULL
+                WHERE CarSaleID = %s
+            """
+            params = (customer_id, salesperson_id, carsaleid)
+
+        cursor.execute(query, params)
 
         if cursor.rowcount == 0:
             print(f"[ERROR] 未找到 CarSaleID = {carsaleid} 的记录。")

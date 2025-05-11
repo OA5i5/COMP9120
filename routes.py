@@ -158,11 +158,20 @@ def update_carsale():
     # If we're just looking at the 'update carsale' page
     if (request.method == 'GET'):
 
-        datelen = len(request.args.get('sale_date'))
-        if (datelen > 0):
-            sale_date = datetime.strptime(request.args.get('sale_date'), '%d-%m-%Y').date()
+        # datelen = len(request.args.get('sale_date'))
+        # if (datelen > 0):
+        #     sale_date = datetime.strptime(request.args.get('sale_date'), '%d-%m-%Y').date()
+        # else:
+        #     sale_date = ''
+        raw_date = request.args.get('sale_date')
+
+        if raw_date and raw_date.strip() != '':
+            try:
+                sale_date = datetime.strptime(raw_date.strip(), '%d-%m-%Y').date()
+            except ValueError:
+                sale_date = None
         else:
-            sale_date = ''
+            sale_date = None
 
         # Get the carsale
         carsale = {
