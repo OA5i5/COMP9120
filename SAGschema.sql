@@ -76,7 +76,7 @@ CREATE TABLE CarSales (
   ModelCode VARCHAR(10) NOT NULL REFERENCES Model(ModelCode),
   BuiltYear INTEGER NOT NULL CHECK (BuiltYear BETWEEN 1950 AND EXTRACT(YEAR FROM CURRENT_DATE)),
   Odometer INTEGER NOT NULL,
-  Price Decimal(10,2) NOT NULL,
+  Price Decimal(10,2) NOT NULL CHECK (Price > 0),
   IsSold Boolean NOT NULL,
   BuyerID VARCHAR(10) REFERENCES Customer,
   SalespersonID VARCHAR(10) REFERENCES Salesperson,
@@ -108,3 +108,32 @@ INSERT INTO CarSales (MakeCode, ModelCode, BuiltYear, Odometer, Price, IsSold, B
 ('MB', 'eclass', 2019, 99220, 105000.00, FALSE, NULL, NULL, NULL),
 ('VW', 'golf', 2023, 53849, 43000.00, FALSE, NULL, NULL, NULL),
 ('MB', 'cclass', 2022, 89200, 62000.00, FALSE, NULL, NULL, NULL);
+
+-- Function 1: 计算所有已售车辆的总销售额
+CREATE OR REPLACE FUNCTION calculate_total_sales()
+RETURNS NUMERIC AS $$
+DECLARE
+    total_sales NUMERIC;
+BEGIN
+    SELECT COALESCE(SUM(Price), 0)
+    INTO total_sales
+    FROM CarSales
+    WHERE IsSold = TRUE;
+
+    RETURN total_sales;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function 2: 按品牌统计已售车辆的总销售额
+CREATE OR REPLACE FUNCTION get_sales_by_make()
+RETURNS TABLE (MakeCode VARCHAR, TotalSales NUMERIC) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        cs.MakeCode,
+        SUM(cs.Price)
+    FROM CarSales cs
+    WHERE cs.IsSold = TRUE
+    GROUP BY cs.MakeCode;
+END;
+$$ LANGUAGE plpgsql;
