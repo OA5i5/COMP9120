@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import psycopg2
-from datetime import datetime
+from datetime import datetime, date
 #####################################################
 ##  Database Connection
 #####################################################
@@ -11,9 +11,9 @@ Connect to the database using the connection string
 def openConnection():
     # connection parameters - ENTER YOUR LOGIN AND PASSWORD HERE
 
-    myHost = "awsprddbs4836.shared.sydney.edu.au"
-    userid = "y25s1c9120_rzha0623"
-    passwd = "ac619uu"
+    myHost = ""
+    userid = ""
+    passwd = ""
 
     # Create a connection to the database
     conn = None
@@ -107,6 +107,10 @@ def getCarSalesSummary():
                 'lastPurchaseAt': row[6] if row[6] else 'N/A'
             })
 
+        # 调用存储函数：calculate_total_sales()
+        total_revenue = getTotalSoldRevenue()
+        print(f"[DEBUG] 当前总销售额为：${total_revenue:,.2f}")
+
         return result
 
     except Exception as e:
@@ -148,11 +152,21 @@ def findCarSales(searchString):
         LEFT JOIN Customer c ON cs.BuyerID = c.CustomerID
         LEFT JOIN Salesperson sp ON cs.SalespersonID = sp.Username
         WHERE 
-            LOWER(cs.MakeCode) LIKE %s OR
-            LOWER(cs.ModelCode) LIKE %s OR
-            LOWER(COALESCE(c.FirstName || ' ' || c.LastName, '')) LIKE %s OR
-            LOWER(COALESCE(sp.FirstName || ' ' || sp.LastName, '')) LIKE %s
-        ORDER BY cs.SaleDate DESC NULLS LAST;
+            (
+                LOWER(cs.MakeCode) LIKE %s OR
+                LOWER(cs.ModelCode) LIKE %s OR
+                LOWER(COALESCE(c.FirstName || ' ' || c.LastName, '')) LIKE %s OR
+                LOWER(COALESCE(sp.FirstName || ' ' || sp.LastName, '')) LIKE %s
+            )
+            AND (
+                cs.IsSold = FALSE OR 
+                (cs.IsSold = TRUE AND cs.SaleDate >= CURRENT_DATE - INTERVAL '3 years')
+            )
+        ORDER BY 
+            cs.IsSold ASC, 
+            cs.SaleDate ASC NULLS FIRST,
+            cs.MakeCode ASC,
+            cs.ModelCode ASC;
         """
 
         cursor.execute(query, (keyword, keyword, keyword, keyword))
@@ -167,7 +181,7 @@ def findCarSales(searchString):
                 'builtYear': row[3],
                 'odometer': row[4],
                 'price': float(row[5]),
-                'isSold': 'Yes' if row[6] else 'No',
+                'isSold': 'True' if row[6] else 'False',
                 'sale_date': row[7],
                 'buyer': row[8],
                 'salesperson': row[9]
@@ -205,6 +219,11 @@ def addCarSale(make, model, builtYear, odometer, price):
         """
         cursor.execute(query, (make, model, builtYear, odometer, price))
         conn.commit()
+
+        # 调用 stored function 查看品牌销售额
+        make_sales = getSalesByMake()
+        print(f"[DEBUG] 当前各品牌销售额为：{make_sales}")
+
         return True
 
     except Exception as e:
@@ -231,6 +250,12 @@ def updateCarSale(carsaleid, customer, salesperson, saledate):
     cursor = conn.cursor()
 
     try:
+        # 🚨 加上未来日期校验
+        if saledate and saledate > date.today():
+            print(f"[ERROR] 销售日期 {saledate} 是未来日期，更新被拒绝。")
+            return False
+
+        # Step 1: 查找 BuyerID
         cursor.execute("""
             SELECT CustomerID FROM Customer 
             WHERE TRIM(FirstName || ' ' || LastName) = %s
@@ -296,6 +321,37 @@ def updateCarSale(carsaleid, customer, salesperson, saledate):
         conn.rollback()
         return False
 
+    finally:
+        cursor.close()
+        conn.close()
+
+    
+    # 调用函数 1：计算总销售额
+def getTotalSoldRevenue():
+    conn = openConnection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT calculate_total_sales();")
+        result = cursor.fetchone()
+        return float(result[0]) if result else 0.0
+    except Exception as e:
+        print("调用 calculate_total_sales() 失败：", e)
+        return 0.0
+    finally:
+        cursor.close()
+        conn.close()
+
+# 调用函数 2：按品牌返回总销售额
+def getSalesByMake():
+    conn = openConnection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT * FROM get_sales_by_make();")
+        rows = cursor.fetchall()
+        return [{'make': row[0], 'total': float(row[1])} for row in rows]
+    except Exception as e:
+        print("调用 get_sales_by_make() 失败：", e)
+        return []
     finally:
         cursor.close()
         conn.close()
