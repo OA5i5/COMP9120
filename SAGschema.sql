@@ -109,7 +109,7 @@ INSERT INTO CarSales (MakeCode, ModelCode, BuiltYear, Odometer, Price, IsSold, B
 ('VW', 'golf', 2023, 53849, 43000.00, FALSE, NULL, NULL, NULL),
 ('MB', 'cclass', 2022, 89200, 62000.00, FALSE, NULL, NULL, NULL);
 
--- Function 1: 计算所有已售车辆的总销售额
+-- Function 1: Calculate total sales revenue from all sold cars
 CREATE OR REPLACE FUNCTION calculate_total_sales()
 RETURNS NUMERIC AS $$
 DECLARE
@@ -124,7 +124,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function 2: 按品牌统计已售车辆的总销售额
+-- Function 2: Calculate total sales revenue by car brand for sold cars
 CREATE OR REPLACE FUNCTION get_sales_by_make()
 RETURNS TABLE (MakeCode VARCHAR, TotalSales NUMERIC) AS $$
 BEGIN

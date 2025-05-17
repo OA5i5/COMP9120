@@ -38,7 +38,7 @@ def checkLogin(login, password):
     cursor = conn.cursor()
 
     try:
-        # 用户名不区分大小写，使用 LOWER 统一小写比较
+        # Username is case-insensitive; use LOWER() for uniform comparison
         query = """
         SELECT Username, FirstName, LastName
         FROM Salesperson
@@ -49,14 +49,14 @@ def checkLogin(login, password):
         user = cursor.fetchone()
 
         if user:
-            # 返回查找到的用户信息
+            # Return matched user info
             return [user[0], user[1], user[2]]
         else:
-            # 若用户名密码错误则返回None
+            # Return None if username or password is incorrect
             return None
 
     except psycopg2.Error as e:
-        print("登录验证SQL执行错误:", e.pgerror)
+        print("Login validation SQL error:", e.pgerror)
         return None
 
     finally:
@@ -107,14 +107,14 @@ def getCarSalesSummary():
                 'lastPurchaseAt': row[6] if row[6] else 'N/A'
             })
 
-        # 调用存储函数：calculate_total_sales()
+        # Call stored function: calculate_total_sales()
         total_revenue = getTotalSoldRevenue()
-        print(f"[DEBUG] 当前总销售额为：${total_revenue:,.2f}")
+        print(f"[DEBUG] Current total sales revenue:${total_revenue:,.2f}")
 
         return result
 
     except Exception as e:
-        print("汇总函数错误:", e)
+        print("Summary function error:", e)
         return []
     finally:
         cursor.close()
@@ -190,7 +190,7 @@ def findCarSales(searchString):
         return result
 
     except Exception as e:
-        print("销售记录查询错误:", e)
+        print("Car sales query error:", e)
         return []
 
     finally:
@@ -231,14 +231,14 @@ def addCarSale(make, model, builtYear, odometer, price):
         cursor.execute(query, (make, model, builtYear, odometer, price))
         conn.commit()
 
-        # 调用 stored function 查看品牌销售额
+        # Call stored function to get brand-wise total sales
         make_sales = getSalesByMake()
-        print(f"[DEBUG] 当前各品牌销售额为：{make_sales}")
+        print(f"[DEBUG] Sales totals by brand:{make_sales}")
 
         return True
 
     except Exception as e:
-        print("数据库插入失败：", e)
+        print("Database insert failed:", e)
         conn.rollback()
         return False
 
@@ -261,38 +261,50 @@ def updateCarSale(carsaleid, customer, salesperson, saledate):
     cursor = conn.cursor()
 
     try:
-        # 加上未来日期校验
+        if isinstance(saledate, str):
+            try:
+                # Try ISO format: YYYY-MM-DD
+                saledate = datetime.strptime(saledate.strip(), "%Y-%m-%d").date()
+            except ValueError:
+                try:
+                    # Try AU format: DD-MM-YYYY
+                    saledate = datetime.strptime(saledate.strip(), "%d-%m-%Y").date()
+                except ValueError:
+                    print(f"[ERROR] Unrecognized date format: {saledate}")
+                    saledate = None
+        
+        # Add future date validation
         if saledate and saledate > date.today():
             print(f"[ERROR] 销售日期 {saledate} 是未来日期，更新被拒绝。")
             return False
 
-        # Step 1: 查找 BuyerID
+        # Step 1: Find BuyerID
         cursor.execute("""
             SELECT CustomerID FROM Customer 
-            WHERE TRIM(FirstName || ' ' || LastName) = %s
+            WHERE LOWER(TRIM(FirstName || ' ' || LastName)) = %s
             LIMIT 1
-        """, (customer,))
+        """, (customer.lower(),))
         cust_result = cursor.fetchone()
 
         if not cust_result:
-            print(f"[ERROR] 客户 {customer} 不存在。")
+            print(f"[ERROR] Customer '{customer}' not found.")
             return False
         customer_id = cust_result[0]
 
-        # Step 2: 查找 SalespersonID
+        # Step 2: Find SalespersonID
         cursor.execute("""
             SELECT UserName FROM Salesperson 
-            WHERE TRIM(FirstName || ' ' || LastName) = %s
+            WHERE LOWER(TRIM(FirstName || ' ' || LastName)) = %s
             LIMIT 1
-        """, (salesperson,))
+        """, (salesperson.lower(),))
         sales_result = cursor.fetchone()
 
         if not sales_result:
-            print(f"[ERROR] 销售员 {salesperson} 不存在。")
+            print(f"[ERROR] Salesperson '{salesperson}' not found.")
             return False
         salesperson_id = sales_result[0]
 
-        # Step 3: 构建 SQL 动态更新语句
+        # Step 3: Build SQL update query
         if saledate:
             query = """
                 UPDATE CarSales
@@ -319,16 +331,16 @@ def updateCarSale(carsaleid, customer, salesperson, saledate):
         cursor.execute(query, params)
 
         if cursor.rowcount == 0:
-            print(f"[ERROR] 未找到 CarSaleID = {carsaleid} 的记录。")
+            print(f"[ERROR] No car found with CarSaleID = {carsaleid}.")
             conn.rollback()
             return False
 
         conn.commit()
-        print("[INFO] 销售记录更新成功。")
+        print("[INFO] Car sale record updated successfully.")
         return True
 
     except Exception as e:
-        print("[EXCEPTION] 销售记录更新失败：", e)
+        print("[EXCEPTION] Failed to update car sale:", e)
         conn.rollback()
         return False
 
@@ -337,7 +349,7 @@ def updateCarSale(carsaleid, customer, salesperson, saledate):
         conn.close()
 
     
-# 调用函数 1：计算总销售额
+# Call function 1: calculate total sales
 def getTotalSoldRevenue():
     conn = openConnection()
     cursor = conn.cursor()
@@ -346,13 +358,13 @@ def getTotalSoldRevenue():
         result = cursor.fetchone()
         return float(result[0]) if result else 0.0
     except Exception as e:
-        print("调用 calculate_total_sales() 失败：", e)
+        print("Failed to call calculate_total_sales():", e)
         return 0.0
     finally:
         cursor.close()
         conn.close()
 
-# 调用函数 2：按品牌返回总销售额
+# Call function 2: return total sales by brand
 def getSalesByMake():
     conn = openConnection()
     cursor = conn.cursor()
@@ -361,7 +373,7 @@ def getSalesByMake():
         rows = cursor.fetchall()
         return [{'make': row[0], 'total': float(row[1])} for row in rows]
     except Exception as e:
-        print("调用 get_sales_by_make() 失败：", e)
+        print("Failed to call get_sales_by_make():", e)
         return []
     finally:
         cursor.close()
